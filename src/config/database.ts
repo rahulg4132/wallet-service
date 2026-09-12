@@ -1,7 +1,7 @@
 import { Pool, type PoolClient, type QueryResultRow } from 'pg';
-import {migrate} from "postgres-migrations"
+import { migrate } from "postgres-migrations"
 
-const pool = new Pool({
+export const pool = new Pool({
   host: 'localhost',
   port: Number(5432),
   user: 'postgres',
@@ -15,13 +15,13 @@ const pool = new Pool({
 export const initDatabase = async (): Promise<void> => {
 
   const isConnected = await connectDatabase();
-  
+
   if (!isConnected) {
     console.error('Server failed to start...');
     console.error('No database connection...');
     process.exit(1);
   }
-  
+
   await runMigrations();
 };
 

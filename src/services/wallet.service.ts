@@ -11,7 +11,8 @@ const WALLET_QUERIES = {
   getByUserId: 'SELECT id, user_id, balance, created_at FROM wallets WHERE user_id = $1',
   credit: `UPDATE wallets
             SET balance = balance + $1
-            WHERE id = $2`,
+            WHERE id = $2
+            RETURNING id, user_id, balance, created_at`,
 } as const;
 
 export class WalletService {

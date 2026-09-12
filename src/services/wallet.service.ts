@@ -3,10 +3,18 @@ import { logger } from '../config/logger.js';
 import type { Wallet, WalletCreateInput } from '../models/wallet.model.js';
 import { AppError } from '../utils/error.handler.js';
 
+const WALLET_QUERIES = {
+  getById: 'SELECT id, user_id, balance, status, created_at FROM wallets WHERE id = $1',
+  create: `INSERT INTO wallets (user_id, balance) VALUES ($1, 0)
+            ON CONFLICT (user_id) DO NOTHING
+            RETURNING id, user_id, balance`,
+  getByUserId: 'SELECT id, user_id, balance_paise FROM wallets WHERE user_id = $1',
+} as const;
+
 export class WalletService {
   async getWalletById(id: string): Promise<Wallet | null> {
     const result = await queryDatabase<Wallet>(
-      'SELECT id, user_id, balance, status, created_at FROM wallets WHERE id = $1',
+      WALLET_QUERIES.getById,
       [id],
     );
     return result.rows[0] ?? null;
@@ -15,9 +23,7 @@ export class WalletService {
   async getOrCreateWallet(input: WalletCreateInput): Promise<Wallet> {
     const userId = input.user_id;
     const insert = await queryDatabase<Wallet>(
-      `INSERT INTO wallets (user_id, balance) VALUES ($1, 0)
-            ON CONFLICT (user_id) DO NOTHING
-            RETURNING id, user_id, balance`,
+      WALLET_QUERIES.create,
       [userId]
     );
     const createdWallet = insert.rows[0];
@@ -27,7 +33,7 @@ export class WalletService {
     }
     // We lost the race (or it already existed) — the row is guaranteed to exist now.
     const existing = await queryDatabase<Wallet>(
-      `SELECT id, user_id, balance_paise FROM wallets WHERE user_id = $1`,
+      WALLET_QUERIES.getByUserId,
       [userId]
     );
     const existingWallet = existing.rows[0];

@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { WalletService } from '../services/wallet.service.js';
 import { logger } from '../config/logger.js';
 import { handleError } from '../utils/error.handler.js';
-import type { WalletCreateInput } from '../models/wallet.model.js';
+import type { WalletCreateInput, WalletCreditInput } from '../models/wallet.model.js';
 import type { Request } from 'express';
 import { auth } from '../middleware/middleware.js';
 
@@ -24,6 +24,16 @@ router.post('/wallets', auth, async (req, res) => {
   logger.info('Received create wallet request');
   try {
     const wallet = await walletService.getOrCreateWallet(req.body);
+    res.json(wallet);
+  } catch (error) {
+    return handleError(error, res);
+  }
+});
+
+router.post('/wallets/:id/credit', auth, async (req, res) => {
+  logger.info({ wallet_id: req.params.id }, 'Received credit wallet request');
+  try {
+    const wallet = await walletService.creditWallet(req.params.id, req.body);
     res.json(wallet);
   } catch (error) {
     return handleError(error, res);

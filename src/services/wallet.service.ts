@@ -1,6 +1,6 @@
 import { queryDatabase } from '../config/database.js';
 import { logger } from '../config/logger.js';
-import type { Wallet, WalletCreateInput } from '../models/wallet.model.js';
+import type { Wallet, WalletCreateInput, WalletCreditInput } from '../models/wallet.model.js';
 import { AppError } from '../utils/error.handler.js';
 import { walletLookups, walletsCreated } from '../config/metrics.js';
 
@@ -9,6 +9,9 @@ const WALLET_QUERIES = {
   create: `INSERT INTO wallets (user_id, balance) VALUES ($1, 0)
             ON CONFLICT (user_id) DO NOTHING`,
   getByUserId: 'SELECT id, user_id, balance, created_at FROM wallets WHERE user_id = $1',
+  credit: `UPDATE wallets
+            SET balance = balance + $1
+            WHERE id = $2`,
 } as const;
 
 export class WalletService {
@@ -54,5 +57,26 @@ export class WalletService {
       throw new AppError(`Unable to find wallet for user ${userId}`, 500);
     }
     return existingWallet;
+  }
+
+  async creditWallet(walletId: string, input: WalletCreditInput): Promise<Wallet> {
+    if (!walletId || typeof walletId !== 'string') {
+      throw new AppError('wallet id is required', 400);
+    }
+    if (!input || !Number.isSafeInteger(input.amount_paise) || input.amount_paise <= 0) {
+      throw new AppError('amount_paise must be a positive integer', 400);
+    }
+
+    const result = await queryDatabase<Wallet>(WALLET_QUERIES.credit, [
+      input.amount_paise,
+      walletId,
+    ]);
+    const wallet = result.rows[0];
+    if (!wallet) {
+      throw new AppError(`No wallet found for id: ${walletId}`, 404);
+    }
+
+    logger.info({ wallet_id: walletId, amount_paise: input.amount_paise }, 'wallet_credited');
+    return wallet;
   }
 }

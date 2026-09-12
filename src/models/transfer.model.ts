@@ -11,11 +11,11 @@ export class TransferCreateInput {
 
   @IsNumber()
   @IsNotEmpty()
-  amount!: number;
+  amount_paise!: number;
 
   @IsString()
   @IsNotEmpty()
-  idempotencyKey!: string;
+  idempotency_key!: string;
 }
 
 export type TransferStatus = 'in_progress' | 'completed' | 'declined';

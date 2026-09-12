@@ -1,9 +1,13 @@
-import { IsString, IsNotEmpty } from 'class-validator';
+import { IsNumber, IsString, IsNotEmpty } from 'class-validator';
 
 export class WalletCreateInput {
   @IsString()
   @IsNotEmpty()
-  user_id!: string
+  user_id!: string;
+
+  @IsNumber()
+  @IsNotEmpty()
+  balance!: number;
 }
 
 export interface Wallet {

@@ -36,7 +36,7 @@ export class TransferService {
     );
     const transfer = res.rows[0];
     if (!transfer) {
-      throw new AppError('transfer not found', 404);
+      throw new AppError(`No transfer found for id: ${id}`, 404);
     }
     return {...transfer, amount: normalizeAmount(transfer.amount) };
   }
@@ -51,21 +51,21 @@ export class TransferService {
     if (typeof input.to !== 'string' || input.to.trim() === '') {
       throw new AppError('to wallet is required', 400);
     }
-    if (typeof input.idempotencyKey !== 'string' || input.idempotencyKey.trim() === '') {
+    if (typeof input.idempotency_key !== 'string' || input.idempotency_key.trim() === '') {
       throw new AppError('idempotencyKey is required', 400);
     }
     if (input.from === input.to) {
       throw new AppError('from and to must differ', 400);
     }
-    if (!Number.isSafeInteger(input.amount) || input.amount <= 0) {
+    if (!Number.isSafeInteger(input.amount_paise) || input.amount_paise <= 0) {
       throw new AppError('amount must be a positive integer', 400);
     }
   }
 
   async transfer(input: TransferCreateInput): Promise<TransferResponse> {
     this.validateInput(input);
-    const { from, to, amount, idempotencyKey } = input;
-    const requestHash = hashBody({ from, to, amount });
+    const { from, to, amount_paise, idempotency_key } = input;
+    const requestHash = hashBody({ from, to, amount_paise });
     const client = await pool.connect();
     let transactionActive = false;
     try {
@@ -73,12 +73,12 @@ export class TransferService {
       transactionActive = true;
       const attemptInsert = await client.query<{ id: string }>(
         TRANSFER_QUERIES.insert,
-        [idempotencyKey, requestHash, from, to, amount]
+        [idempotency_key, requestHash, from, to, amount_paise]
       );
       if (attemptInsert.rows.length === 0) {
         const existing = await client.query<Transfer>(
           TRANSFER_QUERIES.getByIdempotencyKey,
-          [idempotencyKey]
+          [idempotency_key]
         );
         await client.query(TRANSFER_QUERIES.rollback);
         transactionActive = false;
@@ -90,7 +90,7 @@ export class TransferService {
         if (row.request_hash !== requestHash) {
           throw new AppError('idempotency_key reused with a different request body', 409);
         }
-        logger.info({ idempotency_key: idempotencyKey, transfer_id: row.id }, 'idempotent_replay_hit');
+        logger.info({ idempotency_key: idempotency_key, transfer_id: row.id }, 'idempotent_replay_hit');
         if (row.status === 'in_progress') {
           throw new AppError('transfer is still in progress', 409);
         }
@@ -107,11 +107,11 @@ export class TransferService {
         throw new AppError('failed to create transfer', 500);
       }
       const transferId = insertedTransfer.id;
-      logger.info({ transfer_id: transferId, from, to, amount }, 'transfer_created');
+      logger.info({ transfer_id: transferId, from, to, amount_paise }, 'transfer_created');
 
       await this.lockWallets(from, to, client);
 
-      const movementError = await this.executeMoneyMovement(client, amount, from, transferId, to);
+      const movementError = await this.executeMoneyMovement(client, amount_paise, from, transferId, to);
       if (movementError) {
         await client.query(TRANSFER_QUERIES.commit);
         transactionActive = false;
@@ -126,7 +126,7 @@ export class TransferService {
         id: transferId,
         from_wallet: from,
         to_wallet: to,
-        amount: amount,
+        amount: amount_paise,
         status: 'completed',
       };
     } catch (e) {

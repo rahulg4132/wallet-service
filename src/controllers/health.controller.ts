@@ -1,10 +1,12 @@
 import { Router } from 'express';
 import { queryDatabase } from '../config/database.js';
+import { logger } from '../config/logger.js';
 import { handleError } from '../utils/error.handler.js';
 
 const router = Router();
 
 router.get('/health', async (_req, res) => {
+  logger.info('Received health check request');
   try {
     const result = await queryDatabase('SELECT NOW() as current_time');
     const currentTime = result.rows[0]?.current_time;

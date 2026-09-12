@@ -5,7 +5,7 @@ import { AppError } from '../utils/error.handler.js';
 
 const WALLET_QUERIES = {
   getById: 'SELECT id, user_id, balance, created_at FROM wallets WHERE id = $1',
-  create: `INSERT INTO wallets (user_id, balance) VALUES ($1, $2)
+  create: `INSERT INTO wallets (user_id, balance) VALUES ($1, 0)
             ON CONFLICT (user_id) DO NOTHING
             RETURNING id, user_id, balance`,
   getByUserId: 'SELECT id, user_id, balance, created_at FROM wallets WHERE user_id = $1',
@@ -31,19 +31,15 @@ export class WalletService {
     if (typeof input.user_id !== 'string' || input.user_id.trim() === '') {
       throw new AppError('user_id is required', 400);
     }
-    if (!Number.isSafeInteger(input.balance) || input.balance < 0) {
-      throw new AppError('balance must be a non-negative integer', 400);
-    }
 
     const userId = input.user_id;
-    const balance = input.balance;
     const insert = await queryDatabase<Wallet>(
       WALLET_QUERIES.create,
-      [userId, balance]
+      [userId]
     );
     const createdWallet = insert.rows[0];
     if (createdWallet) {
-      logger.info({ user_id: userId, wallet_id: createdWallet.id, balance }, 'wallet_created');
+      logger.info({ user_id: userId, wallet_id: createdWallet.id }, 'wallet_created');
       return createdWallet;
     }
     // We lost the race (or it already existed) — the row is guaranteed to exist now.

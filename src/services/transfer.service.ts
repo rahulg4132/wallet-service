@@ -4,7 +4,7 @@ import { logger } from '../config/logger.js';
 import type { TransferCreateInput, Transfer, TransferResponse } from '../models/transfer.model.js';
 import { AppError } from '../utils/error.handler.js';
 import { hashBody } from '../utils/hash.body.js';
-import {normalizeAmount} from '../utils/random.utils.js';
+import { normalizeAmount } from '../utils/random.utils.js';
 import { idempotentReplays, transfersCreated, transfersDeclined } from '../config/metrics.js';
 
 const TRANSFER_QUERIES = {
@@ -19,7 +19,7 @@ const TRANSFER_QUERIES = {
                 RETURNING id`,
   getByIdempotencyKey: `SELECT id, idempotency_key, request_hash, from_wallet, to_wallet, amount, status, created_at
             FROM transfers WHERE idempotency_key = $1 FOR UPDATE`,
-  lockWallet: 'SELECT id FROM wallets WHERE id = $1 FOR UPDATE',
+  lockWallets: 'SELECT id FROM wallets WHERE id IN ($1, $2) ORDER BY id FOR UPDATE',
   debit: `UPDATE wallets SET balance = balance - $1
                 WHERE id = $2 AND balance >= $1
                 RETURNING id`,
@@ -39,7 +39,7 @@ export class TransferService {
     if (!transfer) {
       throw new AppError(`No transfer found for id: ${id}`, 404);
     }
-    return {...transfer, amount: normalizeAmount(transfer.amount) };
+    return { ...transfer, amount: normalizeAmount(transfer.amount) };
   }
 
   private validateInput(input: TransferCreateInput) {
@@ -64,6 +64,23 @@ export class TransferService {
   }
 
   async transfer(input: TransferCreateInput): Promise<TransferResponse> {
+    const maxAttempts = 3;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      try {
+        return await this.transferOnce(input);
+      } catch (error) {
+        if (!this.isDeadlock(error) || attempt === maxAttempts) {
+          throw error;
+        }
+        logger.warn({ attempt, max_attempts: maxAttempts }, 'transfer_deadlock_retry');
+      }
+    }
+
+    throw new AppError('transfer could not be completed', 500);
+  }
+
+  private async transferOnce(input: TransferCreateInput): Promise<TransferResponse> {
     this.validateInput(input);
     const { from, to, amount_paise, idempotency_key } = input;
     const requestHash = hashBody({ from, to, amount_paise });
@@ -72,6 +89,18 @@ export class TransferService {
     try {
       await client.query(TRANSFER_QUERIES.begin);
       transactionActive = true;
+
+      // IMPORTANT: this must run BEFORE the INSERT below. `transfers` has
+      // FK columns (from_wallet, to_wallet) referencing wallets(id); Postgres
+      // takes an implicit lock on the referenced rows during INSERT, in
+      // (from, to) column order — NOT sorted. If two opposite-direction
+      // transfers (A->B and B->A) both hit that INSERT concurrently, their
+      // implicit FK locks cross and deadlock, regardless of any sorted lock
+      // taken afterward. Taking our own sorted lock first means the FK
+      // check on INSERT just confirms a lock we already hold, in the right
+      // order — no crossed wait ever forms.
+      await this.lockWallets(from, to, client);
+
       const attemptInsert = await client.query<{ id: string }>(
         TRANSFER_QUERIES.insert,
         [idempotency_key, requestHash, from, to, amount_paise]
@@ -111,8 +140,6 @@ export class TransferService {
       const transferId = insertedTransfer.id;
       logger.info({ transfer_id: transferId, from, to, amount_paise }, 'transfer_created');
 
-      await this.lockWallets(from, to, client);
-
       const movementError = await this.executeMoneyMovement(client, amount_paise, from, transferId, to);
       if (movementError) {
         await client.query(TRANSFER_QUERIES.commit);
@@ -146,13 +173,16 @@ export class TransferService {
     }
   }
 
-  private async lockWallets(from: string, to: string, client: PoolClient) {
-    // Deterministic lock order: always touch the lower wallet id first.
-    const [firstId, secondId] = [from, to].sort();
+  private isDeadlock(error: unknown): error is { code: string } {
+    return typeof error === 'object'
+      && error !== null
+      && 'code' in error
+      && (error as { code?: unknown }).code === '40P01';
+  }
 
-    const firstLock = await client.query(TRANSFER_QUERIES.lockWallet, [firstId]);
-    const secondLock = await client.query(TRANSFER_QUERIES.lockWallet, [secondId]);
-    if (firstLock.rowCount === 0 || secondLock.rowCount === 0) {
+  private async lockWallets(from: string, to: string, client: PoolClient) {
+    const locks = await client.query(TRANSFER_QUERIES.lockWallets, [from, to]);
+    if (locks.rowCount !== 2) {
       throw new AppError('from or to wallet does not exist', 404);
     }
   }

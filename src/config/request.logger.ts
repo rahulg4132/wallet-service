@@ -8,6 +8,7 @@ export const requestLogger: RequestHandler = (req, res, next) => {
     logger.info({
       method: req.method,
       url: req.originalUrl,
+      correlation_id: req.cid,
       status_code: res.statusCode,
       duration_ms: Date.now() - startedAt,
     }, 'request_completed');

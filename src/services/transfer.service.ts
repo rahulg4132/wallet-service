@@ -5,6 +5,7 @@ import type { TransferCreateInput, Transfer, TransferResponse } from '../models/
 import { AppError } from '../utils/error.handler.js';
 import { hashBody } from '../utils/hash.body.js';
 import {normalizeAmount} from '../utils/random.utils.js';
+import { idempotentReplays, transfersCreated, transfersDeclined } from '../config/metrics.js';
 
 const TRANSFER_QUERIES = {
   begin: 'BEGIN',
@@ -91,6 +92,7 @@ export class TransferService {
           throw new AppError('idempotency_key reused with a different request body', 409);
         }
         logger.info({ idempotency_key: idempotency_key, transfer_id: row.id }, 'idempotent_replay_hit');
+        idempotentReplays.inc();
         if (row.status === 'in_progress') {
           throw new AppError('transfer is still in progress', 409);
         }
@@ -121,6 +123,7 @@ export class TransferService {
       await client.query(TRANSFER_QUERIES.complete, [transferId]);
       await client.query(TRANSFER_QUERIES.commit);
       transactionActive = false;
+      transfersCreated.inc();
 
       return {
         id: transferId,
@@ -168,6 +171,7 @@ export class TransferService {
 
     if (debitResult.rowCount === 0) {
       await client.query(TRANSFER_QUERIES.decline, [transferId]);
+      transfersDeclined.inc();
       logger.warn({
         transfer_id: transferId,
         from,

@@ -4,12 +4,13 @@ import { logger } from '../config/logger.js';
 import { handleError } from '../utils/error.handler.js';
 import type { WalletCreateInput } from '../models/wallet.model.js';
 import type { Request } from 'express';
+import { auth } from '../middleware/middleware.js';
 
 const router = Router();
 
 const walletService = new WalletService();
 
-router.get('/wallets/:id', async (req, res) => {
+router.get('/wallets/:id', auth, async (req, res) => {
   logger.info({ wallet_id: req.params.id }, 'Received get wallet request');
   try {
     const wallet = await walletService.getWalletById(req.params.id);
@@ -19,7 +20,7 @@ router.get('/wallets/:id', async (req, res) => {
   }
 });
 
-router.post('/wallets', async (req: Request<{}, {}, WalletCreateInput>, res) => {
+router.post('/wallets', auth, async (req, res) => {
   logger.info('Received create wallet request');
   try {
     const wallet = await walletService.getOrCreateWallet(req.body);

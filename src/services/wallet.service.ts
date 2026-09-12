@@ -3,36 +3,36 @@ import type { Wallet, WalletCreateInput } from '../models/wallet.model.js';
 import { AppError } from '../utils/error.handler.js';
 
 export class WalletService {
-	async getWalletById(id: string): Promise<Wallet | null> {
-		const result = await queryDatabase<Wallet>(
-			'SELECT id, user_id, balance, status, created_at FROM wallets WHERE id = $1',
-			[id],
-		);
-		return result.rows[0] ?? null;
-	}
+  async getWalletById(id: string): Promise<Wallet | null> {
+    const result = await queryDatabase<Wallet>(
+      'SELECT id, user_id, balance, status, created_at FROM wallets WHERE id = $1',
+      [id],
+    );
+    return result.rows[0] ?? null;
+  }
 
-    async getOrCreateWallet(input: WalletCreateInput): Promise<Wallet> {
-        const userId = input.user_id;
-        const insert = await queryDatabase<Wallet>(
-            `INSERT INTO wallets (user_id, balance) VALUES ($1, 0)
+  async getOrCreateWallet(input: WalletCreateInput): Promise<Wallet> {
+    const userId = input.user_id;
+    const insert = await queryDatabase<Wallet>(
+      `INSERT INTO wallets (user_id, balance) VALUES ($1, 0)
             ON CONFLICT (user_id) DO NOTHING
             RETURNING id, user_id, balance`,
-            [userId]
-        );
-        const createdWallet = insert.rows[0];
-        if (createdWallet) {
-            console.log('wallet_created', { user_id: userId, wallet_id: createdWallet.id });
-            return createdWallet;
-        }
-        // We lost the race (or it already existed) — the row is guaranteed to exist now.
-        const existing = await queryDatabase<Wallet>(
-            `SELECT id, user_id, balance_paise FROM wallets WHERE user_id = $1`,
-            [userId]
-        );
-        const existingWallet = existing.rows[0];
-        if (!existingWallet) {
-            throw new AppError(`Unable to find wallet for user ${userId}`, 500);
-        }
-        return existingWallet;
+      [userId]
+    );
+    const createdWallet = insert.rows[0];
+    if (createdWallet) {
+      console.log('wallet_created', { user_id: userId, wallet_id: createdWallet.id });
+      return createdWallet;
     }
+    // We lost the race (or it already existed) — the row is guaranteed to exist now.
+    const existing = await queryDatabase<Wallet>(
+      `SELECT id, user_id, balance_paise FROM wallets WHERE user_id = $1`,
+      [userId]
+    );
+    const existingWallet = existing.rows[0];
+    if (!existingWallet) {
+      throw new AppError(`Unable to find wallet for user ${userId}`, 500);
+    }
+    return existingWallet;
+  }
 }

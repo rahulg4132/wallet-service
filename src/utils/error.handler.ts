@@ -16,8 +16,8 @@ export const handleError = (
   res: Response,
   message = 'Internal Server Error',
 ) => {
-    if (error instanceof AppError) {
-        return res.status(error.statusCode).json({ error: error.message });
-    }
-    return res.status(500).json({ error: message });
+  if (error instanceof AppError) {
+    return res.status(error.statusCode).json({ error: error.message });
+  }
+  return res.status(500).json({ error: message });
 };

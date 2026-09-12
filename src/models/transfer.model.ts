@@ -13,7 +13,7 @@ export class TransferCreateInput {
   @IsNotEmpty()
   amount!: number;
 
-  @IsNumber()
+  @IsString()
   @IsNotEmpty()
   idempotencyKey!: string;
 }

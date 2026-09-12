@@ -10,7 +10,7 @@ const transferService = new TransferService();
 
 router.get('/transfers/:id', async (req, res) => {
   try {
-    const result = transferService.getTransfer(req.params.id);
+    const result = await transferService.getTransfer(req.params.id);
     res.json(result);
   } catch (error) {
     return handleError(error, res);
@@ -19,7 +19,7 @@ router.get('/transfers/:id', async (req, res) => {
 
 router.post('/transfers', async (req: Request<{}, {}, TransferCreateInput>, res) => {
   try {
-    const result = transferService.transfer(req.body);
+    const result = await transferService.transfer(req.body);
     res.json(result);
   } catch (error) {
     return handleError(error, res);

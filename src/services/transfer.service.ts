@@ -4,6 +4,7 @@ import { logger } from '../config/logger.js';
 import type { TransferCreateInput, Transfer, TransferResponse } from '../models/transfer.model.js';
 import { AppError } from '../utils/error.handler.js';
 import { hashBody } from '../utils/hash.body.js';
+import {normalizeAmount} from '../utils/random.utils.js';
 
 const TRANSFER_QUERIES = {
   begin: 'BEGIN',
@@ -15,7 +16,8 @@ const TRANSFER_QUERIES = {
                 VALUES ($1, $2, $3, $4, $5, 'in_progress')
                 ON CONFLICT (idempotency_key) DO NOTHING
                 RETURNING id`,
-  getByIdempotencyKey: 'SELECT * FROM transfers WHERE idempotency_key = $1 FOR UPDATE',
+  getByIdempotencyKey: `SELECT id, idempotency_key, request_hash, from_wallet, to_wallet, amount, status, created_at
+            FROM transfers WHERE idempotency_key = $1 FOR UPDATE`,
   lockWallet: 'SELECT id FROM wallets WHERE id = $1 FOR UPDATE',
   debit: `UPDATE wallets SET balance = balance - $1
                 WHERE id = $2 AND balance >= $1
@@ -32,14 +34,30 @@ export class TransferService {
       TRANSFER_QUERIES.getById,
       [id]
     );
-    return res.rows[0] ?? null;
+    const transfer = res.rows[0];
+    if (!transfer) {
+      throw new AppError('transfer not found', 404);
+    }
+    return {...transfer, amount: normalizeAmount(transfer.amount) };
   }
 
-  private async validateInput(input: TransferCreateInput) {
+  private validateInput(input: TransferCreateInput) {
+    if (!input || typeof input !== 'object') {
+      throw new AppError('request body is required', 400);
+    }
+    if (typeof input.from !== 'string' || input.from.trim() === '') {
+      throw new AppError('from wallet is required', 400);
+    }
+    if (typeof input.to !== 'string' || input.to.trim() === '') {
+      throw new AppError('to wallet is required', 400);
+    }
+    if (typeof input.idempotencyKey !== 'string' || input.idempotencyKey.trim() === '') {
+      throw new AppError('idempotencyKey is required', 400);
+    }
     if (input.from === input.to) {
       throw new AppError('from and to must differ', 400);
     }
-    if (!Number.isInteger(input.amount) || input.amount <= 0) {
+    if (!Number.isSafeInteger(input.amount) || input.amount <= 0) {
       throw new AppError('amount must be a positive integer', 400);
     }
   }
@@ -49,8 +67,10 @@ export class TransferService {
     const { from, to, amount, idempotencyKey } = input;
     const requestHash = hashBody({ from, to, amount });
     const client = await pool.connect();
+    let transactionActive = false;
     try {
       await client.query(TRANSFER_QUERIES.begin);
+      transactionActive = true;
       const attemptInsert = await client.query<{ id: string }>(
         TRANSFER_QUERIES.insert,
         [idempotencyKey, requestHash, from, to, amount]
@@ -61,6 +81,7 @@ export class TransferService {
           [idempotencyKey]
         );
         await client.query(TRANSFER_QUERIES.rollback);
+        transactionActive = false;
 
         const row = existing.rows[0];
         if (!row) {
@@ -70,11 +91,14 @@ export class TransferService {
           throw new AppError('idempotency_key reused with a different request body', 409);
         }
         logger.info({ idempotency_key: idempotencyKey, transfer_id: row.id }, 'idempotent_replay_hit');
+        if (row.status === 'in_progress') {
+          throw new AppError('transfer is still in progress', 409);
+        }
         return {
           id: row.id,
           from_wallet: row.from_wallet,
           to_wallet: row.to_wallet,
-          amount: row.amount,
+          amount: normalizeAmount(row.amount),
           status: row.status,
         };
       }
@@ -87,11 +111,16 @@ export class TransferService {
 
       await this.lockWallets(from, to, client);
 
-      // Atomic conditional debit, unconditional credit.
-      await this.executeMoneyMovement(client, amount, from, transferId, to);
+      const movementError = await this.executeMoneyMovement(client, amount, from, transferId, to);
+      if (movementError) {
+        await client.query(TRANSFER_QUERIES.commit);
+        transactionActive = false;
+        throw movementError;
+      }
 
       await client.query(TRANSFER_QUERIES.complete, [transferId]);
       await client.query(TRANSFER_QUERIES.commit);
+      transactionActive = false;
 
       return {
         id: transferId,
@@ -101,7 +130,13 @@ export class TransferService {
         status: 'completed',
       };
     } catch (e) {
-      await client.query(TRANSFER_QUERIES.rollback);
+      if (transactionActive) {
+        try {
+          await client.query(TRANSFER_QUERIES.rollback);
+        } catch (rollbackError) {
+          logger.error({ err: rollbackError }, 'transfer_rollback_failed');
+        }
+      }
       throw e;
     } finally {
       client.release();
@@ -115,12 +150,17 @@ export class TransferService {
     const firstLock = await client.query(TRANSFER_QUERIES.lockWallet, [firstId]);
     const secondLock = await client.query(TRANSFER_QUERIES.lockWallet, [secondId]);
     if (firstLock.rowCount === 0 || secondLock.rowCount === 0) {
-      await client.query(TRANSFER_QUERIES.rollback);
       throw new AppError('from or to wallet does not exist', 404);
     }
   }
 
-  private async executeMoneyMovement(client: PoolClient, amount: number, from: string, transferId: string, to: string) {
+  private async executeMoneyMovement(
+    client: PoolClient,
+    amount: number,
+    from: string,
+    transferId: string,
+    to: string,
+  ): Promise<AppError | null> {
     const debitResult = await client.query(
       TRANSFER_QUERIES.debit,
       [amount, from]
@@ -128,14 +168,13 @@ export class TransferService {
 
     if (debitResult.rowCount === 0) {
       await client.query(TRANSFER_QUERIES.decline, [transferId]);
-      await client.query(TRANSFER_QUERIES.commit);
       logger.warn({
         transfer_id: transferId,
         from,
         to,
         amount: amount,
       }, 'transfer_declined_insufficient_funds');
-      throw new AppError('insufficient funds', 409, {
+      return new AppError('insufficient funds', 409, {
         transfer_id: transferId,
         status: 'declined',
         reason: 'insufficient_funds',
@@ -149,5 +188,6 @@ export class TransferService {
       to,
     ]);
     logger.info({ transfer_id: transferId, wallet_id: to, amount }, 'transfer_credited');
+    return null;
   }
 }

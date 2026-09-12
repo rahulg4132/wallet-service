@@ -21,7 +21,8 @@ app.use(transfersController);
 const startServer = async () => {
   await initDatabase();
 
-  app.listen(3000, () => logger.info('Running on 3000'));
+  const port = Number(process.env.PORT ?? 3000);
+  app.listen(port, () => logger.info({ port }, 'Running'));
 };
 
 startServer();

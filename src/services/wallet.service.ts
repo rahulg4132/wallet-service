@@ -1,4 +1,5 @@
 import { queryDatabase } from '../config/database.js';
+import { logger } from '../config/logger.js';
 import type { Wallet, WalletCreateInput } from '../models/wallet.model.js';
 import { AppError } from '../utils/error.handler.js';
 
@@ -21,7 +22,7 @@ export class WalletService {
     );
     const createdWallet = insert.rows[0];
     if (createdWallet) {
-      console.log('wallet_created', { user_id: userId, wallet_id: createdWallet.id });
+      logger.info({ user_id: userId, wallet_id: createdWallet.id }, 'wallet_created');
       return createdWallet;
     }
     // We lost the race (or it already existed) — the row is guaranteed to exist now.

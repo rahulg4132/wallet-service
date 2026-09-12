@@ -1,5 +1,6 @@
 import { Pool, type PoolClient, type QueryResultRow } from 'pg';
 import { migrate } from "postgres-migrations"
+import { logger } from './logger.js';
 
 export const pool = new Pool({
   host: 'localhost',
@@ -17,8 +18,8 @@ export const initDatabase = async (): Promise<void> => {
   const isConnected = await connectDatabase();
 
   if (!isConnected) {
-    console.error('Server failed to start...');
-    console.error('No database connection...');
+    logger.error('Server failed to start...');
+    logger.error('No database connection...');
     process.exit(1);
   }
 
@@ -29,10 +30,10 @@ const connectDatabase = async (): Promise<boolean> => {
   try {
     const client = await pool.connect();
     client.release();
-    console.log('Connected to PostgreSQL');
+    logger.info('Connected to PostgreSQL');
     return true;
   } catch (error) {
-    console.error('PostgreSQL connection failed:', error instanceof Error ? error.message : error);
+    logger.error({ err: error }, 'PostgreSQL connection failed');
     return false;
   }
 };
@@ -40,11 +41,11 @@ const connectDatabase = async (): Promise<boolean> => {
 const runMigrations = async (): Promise<void> => {
   const client = await pool.connect();
   try {
-    console.log('Running database migrations...');
+    logger.info('Running database migrations...');
     await migrate({ client }, "./migrations");
-    console.log('Migrations completed successfully.');
+    logger.info('Migrations completed successfully.');
   } catch (error) {
-    console.error('Database migration failed:', error);
+    logger.error({ err: error }, 'Database migration failed');
     throw error;
   } finally {
     client.release();

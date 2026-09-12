@@ -3,6 +3,7 @@ import { initDatabase } from './config/database.js';
 import healthController from './controllers/health.controller.js';
 import walletController from './controllers/wallet.controller.js';
 import transfersController from './controllers/transfer.controller.js';
+import { logger } from './config/logger.js';
 
 const app = express();
 app.use(express.json());
@@ -13,7 +14,7 @@ app.use(transfersController);
 const startServer = async () => {
   await initDatabase();
 
-  app.listen(3000, () => console.log('Running on 3000'));
+  app.listen(3000, () => logger.info('Running on 3000'));
 };
 
 startServer();

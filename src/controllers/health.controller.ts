@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { queryDatabase } from '../config/database.js';
+import { handleError } from '../utils/error.handler.js';
 
 const router = Router();
 
@@ -16,11 +17,7 @@ router.get('/health', async (_req, res) => {
       },
     });
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: 'Database connection failed',
-      error: error instanceof Error ? error.message : 'Unknown database error',
-    });
+    return handleError(error, res, "Database connection failed");
   }
 });
 

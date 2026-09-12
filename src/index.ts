@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import express from 'express';
 import { initDatabase } from './config/database.js';
 import healthController from './controllers/health.controller.js';

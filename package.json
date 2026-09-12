@@ -24,6 +24,7 @@
   "homepage": "https://github.com/rahulg4132/wallet-service#readme",
   "dependencies": {
     "class-validator": "^0.15.1",
+    "dotenv": "^17.4.2",
     "express": "^5.2.1",
     "pg": "^8.23.0",
     "pino": "^10.3.1",

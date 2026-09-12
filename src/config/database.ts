@@ -3,14 +3,8 @@ import { migrate } from "postgres-migrations"
 import { logger } from './logger.js';
 
 export const pool = new Pool({
-  host: 'localhost',
-  port: Number(5432),
-  user: 'postgres',
-  password: 'password',
-  database: 'wallet_db',
-  max: 20,
-  idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 2000,
+  connectionString: process.env.DATABASE_URL,
+  ssl: process.env.PGSSL === 'false' ? false : { rejectUnauthorized: false },
 });
 
 export const initDatabase = async (): Promise<void> => {
